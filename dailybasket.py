@@ -28,7 +28,15 @@ def initialize(path: str | None = None) -> None:
     schema = Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
     with connect(path) as conn:
         conn.executescript(schema)
-        for statement in ("ALTER TABLE users ADD COLUMN pending_email TEXT", "ALTER TABLE users ADD COLUMN pending_token TEXT", "ALTER TABLE products ADD COLUMN image_data BLOB", "ALTER TABLE products ADD COLUMN image_mime TEXT"):
+        for statement in (
+            "ALTER TABLE users ADD COLUMN pending_email TEXT",
+            "ALTER TABLE users ADD COLUMN pending_token TEXT",
+            "ALTER TABLE products ADD COLUMN image_data BLOB",
+            "ALTER TABLE products ADD COLUMN image_mime TEXT",
+            "ALTER TABLE shopping ADD COLUMN category TEXT NOT NULL DEFAULT 'other'",
+            "ALTER TABLE shopping ADD COLUMN nutrition_json TEXT NOT NULL DEFAULT '{}'",
+            "ALTER TABLE shopping ADD COLUMN nutrition_basis TEXT",
+        ):
             try: conn.execute(statement)
             except sqlite3.OperationalError: pass
 
@@ -133,7 +141,7 @@ def resend_verification(conn, email: str) -> str | None:
 def require_owned(conn, table: str, owner_id: int, record_id: int):
     return conn.execute(f"SELECT * FROM {table} WHERE id=? AND owner_id=?", (record_id, owner_id)).fetchone()
 
-def upsert_product(conn, owner_id, name, category="other", nutrition=None, basis=None, use_rate=None, use_unit=None):
+def upsert_product(conn, owner_id, name, category="other", nutrition=None, basis=None, use_rate=None, use_unit=None, _commit=True):
     row = conn.execute("SELECT * FROM products WHERE owner_id=? AND lower(name)=lower(?)", (owner_id, name.strip())).fetchone()
     values = (category, nutrition or {}, basis, use_rate, use_unit, owner_id, name.strip())
     if row:
@@ -141,39 +149,68 @@ def upsert_product(conn, owner_id, name, category="other", nutrition=None, basis
         product_id = row["id"]
     else:
         cur = conn.execute("INSERT INTO products(owner_id,name,category,nutrition_json,nutrition_basis,use_rate,use_unit) VALUES(?,?,?,?,?,?,?)", (owner_id, name.strip(), category, json_dump(nutrition or {}), basis, use_rate, use_unit)); product_id = cur.lastrowid
-    conn.commit(); return product_id
+    if _commit: conn.commit()
+    return product_id
 
-def add_shopping(conn, owner_id, name, quantity, unit):
+def add_shopping(conn, owner_id, name, quantity, unit, category="other", nutrition=None, nutrition_basis=None):
     if quantity <= 0: raise ValueError("Quantity must be positive")
-    conn.execute("INSERT INTO shopping(owner_id,name,quantity,unit) VALUES(?,?,?,?)", (owner_id, name.strip(), quantity, unit)); conn.commit()
+    cur = conn.execute(
+        "INSERT INTO shopping(owner_id,name,quantity,unit,category,nutrition_json,nutrition_basis) VALUES(?,?,?,?,?,?,?)",
+        (owner_id, name.strip(), quantity, unit, category, json_dump(nutrition or {}), nutrition_basis),
+    )
+    conn.commit(); return cur.lastrowid
 
-def edit_shopping(conn, owner_id, shopping_id, name, quantity, unit):
+def edit_shopping(conn, owner_id, shopping_id, name, quantity, unit, category="other", nutrition=None, nutrition_basis=None):
     if not name.strip() or quantity <= 0: raise ValueError("Name and positive quantity are required")
-    if not conn.execute("UPDATE shopping SET name=?,quantity=?,unit=? WHERE id=? AND owner_id=?", (name.strip(),quantity,unit,shopping_id,owner_id)).rowcount: raise ValueError("Shopping entry not found")
+    if not conn.execute(
+        "UPDATE shopping SET name=?,quantity=?,unit=?,category=?,nutrition_json=?,nutrition_basis=? WHERE id=? AND owner_id=?",
+        (name.strip(), quantity, unit, category, json_dump(nutrition or {}), nutrition_basis, shopping_id, owner_id),
+    ).rowcount: raise ValueError("Shopping entry not found")
     conn.commit()
 
 def set_shopping_checked(conn, owner_id, shopping_id, checked):
     if not conn.execute("UPDATE shopping SET checked=? WHERE id=? AND owner_id=?", (int(checked),shopping_id,owner_id)).rowcount: raise ValueError("Shopping entry not found")
     conn.commit()
 
-def remove_shopping(conn, owner_id, shopping_id):
+def remove_shopping(conn, owner_id, shopping_id, _commit=True):
     if not conn.execute("DELETE FROM shopping WHERE id=? AND owner_id=?", (shopping_id,owner_id)).rowcount: raise ValueError("Shopping entry not found")
-    conn.commit()
+    if _commit: conn.commit()
 
 def list_shopping(conn, owner_id):
     return conn.execute("SELECT s.*, COALESCE(SUM(b.remaining_quantity),0) on_hand FROM shopping s LEFT JOIN products p ON p.owner_id=s.owner_id AND lower(p.name)=lower(s.name) LEFT JOIN batches b ON b.product_id=p.id AND b.owner_id=s.owner_id AND b.status='active' WHERE s.owner_id=? GROUP BY s.id ORDER BY s.checked,s.name", (owner_id,)).fetchall()
+
+def buy_shopping(conn, owner_id, shopping_id, purchase_date=None, storage="refrigerated"):
+    """Move one owned shopping entry into a new inventory batch and remove the entry."""
+    item = require_owned(conn, "shopping", owner_id, shopping_id)
+    if not item: raise ValueError("Shopping entry not found")
+    preferences(conn, owner_id)
+    with conn:
+        product_id = upsert_product(
+            conn,
+            owner_id,
+            item["name"],
+            item["category"] or "other",
+            json_load(item["nutrition_json"]),
+            item["nutrition_basis"],
+            _commit=False,
+        )
+        batch_id = add_batch(conn, owner_id, product_id, item["quantity"], item["unit"], purchase_date or date.today(), storage, _commit=False)
+        remove_shopping(conn, owner_id, shopping_id, _commit=False)
+    return batch_id, item["name"]
 
 def estimate_expiry(conn, owner_id, category, product_name, purchase_date: date, storage):
     prefs = preferences(conn, owner_id); rules = json_load(prefs['estimate_rules'])
     days = rules.get(product_name.lower(), rules.get(category.lower(), rules.get("vegetable", {}))).get(storage, 5)
     return purchase_date + timedelta(days=int(days))
 
-def add_batch(conn, owner_id, product_id, quantity, unit, purchase_date, storage, expiry_date=None, source="entered"):
+def add_batch(conn, owner_id, product_id, quantity, unit, purchase_date, storage, expiry_date=None, source="entered", _commit=True):
     if quantity <= 0 or not require_owned(conn, "products", owner_id, product_id): raise ValueError("Invalid batch")
     product = require_owned(conn, "products", owner_id, product_id)
     if not expiry_date:
         expiry_date = estimate_expiry(conn, owner_id, product['category'], product['name'], purchase_date, storage); source = "estimated"
-    cur = conn.execute("INSERT INTO batches(owner_id,product_id,quantity,remaining_quantity,unit,purchase_date,storage,expiry_date,expiry_source) VALUES(?,?,?,?,?,?,?,?,?)", (owner_id, product_id, quantity, quantity, unit, str(purchase_date), storage, str(expiry_date), source)); conn.commit(); return cur.lastrowid
+    cur = conn.execute("INSERT INTO batches(owner_id,product_id,quantity,remaining_quantity,unit,purchase_date,storage,expiry_date,expiry_source) VALUES(?,?,?,?,?,?,?,?,?)", (owner_id, product_id, quantity, quantity, unit, str(purchase_date), storage, str(expiry_date), source))
+    if _commit: conn.commit()
+    return cur.lastrowid
 
 def change_batch(conn, owner_id, batch_id, amount, reason):
     batch = require_owned(conn, "batches", owner_id, batch_id)
@@ -255,6 +292,21 @@ def alerts(conn, owner_id, today=None):
             if row['remaining_quantity'] > usable: surplus = {"remaining": row['remaining_quantity'], "expected": round(usable, 2)}
         if state or surplus or (expiry <= soon_end and not row['use_rate']): result.append({**dict(row), "state": state, "surplus": surplus, "usage_rate_needed": expiry <= soon_end and not row['use_rate']})
     order = {'expired': 0, 'today': 1, 'soon': 2, None: 3}; return sorted(result, key=lambda item: (order[item['state']], item['expiry_date']))
+
+def dashboard_groups(conn, owner_id, today=None):
+    """Return all active batches divided into fresh stock and items needing attention."""
+    notices = {item["id"]: item for item in alerts(conn, owner_id, today)}
+    fresh, needs_attention = [], []
+    for batch in inventory(conn, owner_id, status="Active"):
+        item = dict(batch)
+        alert = notices.get(item["id"])
+        if alert:
+            item.update({key: alert[key] for key in ("state", "surplus", "usage_rate_needed")})
+            needs_attention.append(item)
+        else:
+            item.update({"state": None, "surplus": None, "usage_rate_needed": False})
+            fresh.append(item)
+    return {"fresh": fresh, "needs_attention": needs_attention}
 
 def inventory(conn, owner_id, query="", category="All", status="All"):
     sql = "SELECT b.*,p.name,p.category,p.nutrition_json,p.nutrition_basis FROM batches b JOIN products p ON p.id=b.product_id WHERE b.owner_id=?"; params=[owner_id]

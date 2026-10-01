@@ -1,5 +1,7 @@
 from datetime import date, datetime, timezone
 import logging
+from pathlib import Path
+import sqlite3
 import pytest
 import smtplib
 import dailybasket as db
@@ -45,6 +47,48 @@ def test_shopping_batch_edit_and_estimate_override(tmp_path):
     product=db.upsert_product(conn,user['id'],'spinach','vegetable'); batch=db.add_batch(conn,user['id'],product,2,'bags',date(2026,1,1),'refrigerated')
     db.edit_batch(conn,user['id'],batch,3,'bags',date(2026,1,2),'room',date(2026,1,9))
     row=db.require_owned(conn,'batches',user['id'],batch); assert (row['quantity'],row['expiry_date'],row['expiry_source']) == (3,'2026-01-09','entered')
+
+def test_shopping_metadata_transfers_category_nutrition_and_removes_entry(tmp_path):
+    path, conn = setup(tmp_path); user = account(conn)
+    db.update_preferences(conn, user['id'], estimate_rules=db.json_dump({'fruit': {'refrigerated': 9}, 'vegetable': {'refrigerated': 5}}))
+    shopping_id = db.add_shopping(conn, user['id'], 'apple', 2, 'kg', 'other', {'calories': 10}, 'per serving')
+    db.edit_shopping(conn, user['id'], shopping_id, 'apple', 2, 'kg', 'fruit', {'calories': 52, 'protein': 0.3, 'carbs': 14, 'fat': 0.2}, 'per 100 g')
+    item = db.list_shopping(conn, user['id'])[0]
+    assert item['category'] == 'fruit' and db.json_load(item['nutrition_json'])['protein'] == 0.3
+    batch, name = db.buy_shopping(conn, user['id'], shopping_id, date(2026, 1, 1))
+    assert name == 'apple' and not db.list_shopping(conn, user['id'])
+    product = db.product_detail(conn, user['id'], db.require_owned(conn, 'batches', user['id'], batch)['product_id'])
+    assert product['category'] == 'fruit' and product['nutrition_basis'] == 'per 100 g'
+    assert db.json_load(product['nutrition_json']) == {'calories': 52, 'protein': 0.3, 'carbs': 14, 'fat': 0.2}
+    assert db.require_owned(conn, 'batches', user['id'], batch)['expiry_date'] == '2026-01-10'
+    with pytest.raises(ValueError, match='Shopping entry not found'): db.buy_shopping(conn, user['id'], shopping_id)
+
+def test_existing_shopping_rows_get_safe_metadata_defaults(tmp_path):
+    path = str(tmp_path / 'legacy.db')
+    with sqlite3.connect(path) as legacy:
+        legacy.execute('CREATE TABLE shopping (id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL, name TEXT NOT NULL, quantity REAL NOT NULL, unit TEXT NOT NULL, checked INTEGER NOT NULL DEFAULT 0)')
+    db.initialize(path); conn = db.connect(path); user = account(conn)
+    conn.execute('INSERT INTO shopping(owner_id,name,quantity,unit) VALUES(?,?,?,?)', (user['id'], 'legacy item', 1, 'each')); conn.commit()
+    item = db.list_shopping(conn, user['id'])[0]
+    assert item['category'] == 'other' and db.json_load(item['nutrition_json']) == {} and item['nutrition_basis'] is None
+
+def test_dashboard_groups_include_all_active_stock(tmp_path):
+    path, conn = setup(tmp_path); user = account(conn)
+    db.update_preferences(conn, user['id'], timezone='UTC', soon_days=3)
+    fresh_product = db.upsert_product(conn, user['id'], 'milk', 'dairy')
+    needs_product = db.upsert_product(conn, user['id'], 'spinach', 'vegetable')
+    db.add_batch(conn, user['id'], fresh_product, 1, 'l', date(2026, 1, 1), 'refrigerated', date(2026, 1, 10))
+    db.add_batch(conn, user['id'], needs_product, 1, 'kg', date(2026, 1, 1), 'refrigerated', date(2026, 1, 2))
+    groups = db.dashboard_groups(conn, user['id'], date(2026, 1, 2))
+    assert [item['name'] for item in groups['fresh']] == ['milk']
+    assert groups['needs_attention'][0]['name'] == 'spinach'
+    assert groups['needs_attention'][0]['state'] == 'today' and groups['needs_attention'][0]['usage_rate_needed']
+
+def test_inventory_product_widgets_are_unique_per_batch():
+    source = Path('app.py').read_text(encoding='utf-8')
+    assert 'with st.form(f"product-{batch[\'id\']}")' in source
+    for key in ('rate-', 'rateu-', 'image-'):
+        assert f'key=f"{key}{{batch[\'id\']}}"' in source
 
 def test_correction_finish_remove_preserve_events(tmp_path):
     path,conn=setup(tmp_path); user=account(conn); product=db.upsert_product(conn,user['id'],'milk','dairy'); batch=db.add_batch(conn,user['id'],product,3,'l',date.today(),'refrigerated',date.today())

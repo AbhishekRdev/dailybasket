@@ -1,8 +1,8 @@
 # DailyBasket
 
-Local Streamlit MVP for private grocery planning, inventory batches, and daily reminders.
+Local Streamlit MVP for private grocery planning, inventory batches, and in-app expiry and surplus reminders.
 
-For a Windows demo setup, the exact registration and login steps, reminder email setup, and Streamlit Community Cloud limitations, see the [demo and onboarding guide](DEMO_GUIDE.md).
+For a Windows demo setup, the exact registration and login steps, dashboard reminder walkthrough, and Streamlit Community Cloud limitations, see the [demo and onboarding guide](DEMO_GUIDE.md).
 
 ## Run
 
@@ -19,15 +19,11 @@ SMTP verification requires `SMTP_HOST`, `SMTP_FROM`, and a port from `1` through
 
 Product pictures are stored as private SQLite blobs and are read only through the signed-in owner’s product view; no uploaded file path is exposed. Batch removal is non-destructive: it removes stock and retains the batch/event audit history.
 
-## Reminder worker
+## In-app inventory status
 
-Run independently of Streamlit (for example, every 5 minutes with Task Scheduler):
+The Dashboard groups every active batch into **Fresh stock** or **Needs attention**. Needs-attention items are expired, due today, within the configured soon window, possible surplus, or missing an expected-use rate close to expiry. This status updates from the database whenever the Dashboard loads; no worker, SMTP configuration, or scheduled process is required for inventory reminders.
 
-```powershell
-python worker.py
-```
-
-It checks each verified, unpaused account at its local reminder time, atomically claims a customer/day before sending, records retry state, and will not resend a successfully delivered local-day reminder. Missing SMTP is recorded as a retryable failure, never a delivery. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and optionally `DASHBOARD_URL` for email delivery. SMTP cannot guarantee exactly-once delivery if a server accepts a message but the client loses the response; an `in_progress` claim is therefore not automatically resent after a crash, preventing a possible duplicate and requiring operator review/retry of the recorded delivery.
+SMTP remains necessary only when email verification is enabled outside explicitly local development mode.
 
 ## Validation
 
@@ -35,4 +31,4 @@ It checks each verified, unpaused account at its local reminder time, atomically
 pytest -q
 ```
 
-Dates are planning information: entered package dates take priority; vegetable dates are configurable freshness estimates, not food-safety guarantees. Defaults are manual nutrition, expected-use rates, and quiet-day reminder emails.
+Dates are planning information: entered package dates take priority; vegetable dates are configurable freshness estimates, not food-safety guarantees. Defaults are manual nutrition and expected-use rates.
