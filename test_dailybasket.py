@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone
+import logging
 import pytest
 import smtplib
 import dailybasket as db
@@ -111,6 +112,76 @@ def test_smtp_send_failure_rolls_back_registration_and_email_change(tmp_path, mo
     with pytest.raises(RuntimeError,match='Could not send'): db.request_email_change(conn,db.authenticate(conn,'old@example.com','password1')['id'],'new@example.com')
     user=db.authenticate(conn,'old@example.com','password1'); assert user and user['email']=='old@example.com'
     assert conn.execute('SELECT pending_email FROM users WHERE id=?',(user['id'],)).fetchone()['pending_email'] is None
+
+@pytest.mark.parametrize(
+    ('failure_factory', 'error_class', 'summary'),
+    [
+        (lambda text: smtplib.SMTPAuthenticationError(535, text.encode()), 'SMTPAuthenticationError', 'smtp_authentication_failure'),
+        (lambda text: smtplib.SMTPNotSupportedError(text), 'SMTPNotSupportedError', 'smtp_tls_not_supported'),
+        (lambda text: smtplib.SMTPRecipientsRefused({'recipient-secret@example.test': (550, text.encode())}), 'SMTPRecipientsRefused', 'smtp_recipient_rejected'),
+        (lambda text: smtplib.SMTPDataError(554, text.encode()), 'SMTPDataError', 'smtp_data_rejected'),
+        (lambda text: OSError(text), 'OSError', 'network_or_connection_failure'),
+        (lambda text: RuntimeError(text), 'Exception', 'unexpected_delivery_failure'),
+    ],
+)
+def test_verification_failure_logs_only_safe_diagnostics(monkeypatch, caplog, failure_factory, error_class, summary):
+    smtp_config(monkeypatch)
+    recipient = 'recipient-secret@example.test'
+    sender = 'sender-secret@example.test'
+    smtp_user = 'smtp-user-secret'
+    smtp_password = 'smtp-password-secret'
+    token = 'verification-token-secret'
+    monkeypatch.setenv('SMTP_FROM', sender)
+    monkeypatch.setenv('SMTP_USER', smtp_user)
+    monkeypatch.setenv('SMTP_PASSWORD', smtp_password)
+    sensitive_text = f'{recipient} {sender} {smtp_user} {smtp_password} {token}'
+
+    class BrokenSMTP(FakeSMTP):
+        def send_message(self, message):
+            raise failure_factory(sensitive_text)
+
+    monkeypatch.setattr(smtplib, 'SMTP', BrokenSMTP)
+    with caplog.at_level(logging.WARNING, logger='dailybasket'):
+        with pytest.raises(RuntimeError) as raised:
+            db.send_verification_email(recipient, token)
+
+    error = raised.value
+    assert str(error) == 'Could not send verification email. Check SMTP configuration and try again.'
+    assert error.__cause__ is None and error.__suppress_context__
+    record = next(record for record in caplog.records if record.name == 'dailybasket')
+    assert record.msg == 'Verification email delivery failed; exception_class=%s summary=%s'
+    assert record.args == (error_class, summary)
+    assert record.exc_info is None and record.exc_text is None
+    for secret in (recipient, sender, smtp_user, smtp_password, token):
+        assert secret not in record.getMessage()
+        assert secret not in record.msg
+        assert secret not in repr(record.args)
+
+def test_failed_resend_preserves_prior_token(tmp_path, monkeypatch):
+    path, conn = setup(tmp_path)
+    token = db.register(conn, 'resend-failure@example.test', 'password1')
+    smtp_config(monkeypatch)
+
+    class BrokenSMTP(FakeSMTP):
+        def send_message(self, message): raise OSError('delivery failed')
+
+    monkeypatch.setattr(smtplib, 'SMTP', BrokenSMTP)
+    with pytest.raises(RuntimeError, match='Could not send verification email'):
+        db.resend_verification(conn, 'resend-failure@example.test')
+    current = conn.execute("SELECT verification_token FROM users WHERE email='resend-failure@example.test'").fetchone()['verification_token']
+    assert current == token
+
+def test_successful_verification_delivery_emits_no_warning(monkeypatch, caplog):
+    with caplog.at_level(logging.WARNING, logger='dailybasket'):
+        assert db.send_verification_email('dev@example.test', 'dev-token') == 'dev-token'
+    assert not [record for record in caplog.records if record.name == 'dailybasket']
+
+    smtp_config(monkeypatch)
+    monkeypatch.setattr(smtplib, 'SMTP', FakeSMTP)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger='dailybasket'):
+        assert db.send_verification_email('smtp@example.test', 'smtp-token') is None
+    assert not [record for record in caplog.records if record.name == 'dailybasket']
 
 def test_smtp_configuration_and_resend_rotation(tmp_path, monkeypatch):
     monkeypatch.delenv('DAILYBASKET_DEV_MODE',raising=False); path,conn=setup(tmp_path)

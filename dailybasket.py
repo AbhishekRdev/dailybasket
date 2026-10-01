@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import sqlite3
@@ -12,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 DEFAULT_RULES = {"spinach": {"refrigerated": 5, "room": 1}, "vegetable": {"refrigerated": 5, "room": 2}}
 CATEGORY_ICONS = {"vegetable": "🥬", "fruit": "🍎", "dairy": "🥛", "meat": "🥩", "other": "🛒"}
+LOGGER = logging.getLogger(__name__)
 
 def database_path() -> str:
     return os.environ.get("DAILYBASKET_DB", "dailybasket.db")
@@ -63,7 +65,28 @@ def send_verification_email(email: str, token: str) -> str | None:
             smtp.starttls()
             if os.getenv("SMTP_USER"): smtp.login(os.environ["SMTP_USER"], os.environ.get("SMTP_PASSWORD", ""))
             smtp.send_message(message)
-    except Exception:
+    except Exception as error:
+        if isinstance(error, TimeoutError):
+            error_class, summary = "TimeoutError", "connection_timeout"
+        elif isinstance(error, smtplib.SMTPAuthenticationError):
+            error_class, summary = "SMTPAuthenticationError", "smtp_authentication_failure"
+        elif isinstance(error, smtplib.SMTPNotSupportedError):
+            error_class, summary = "SMTPNotSupportedError", "smtp_tls_not_supported"
+        elif isinstance(error, smtplib.SMTPRecipientsRefused):
+            error_class, summary = "SMTPRecipientsRefused", "smtp_recipient_rejected"
+        elif isinstance(error, smtplib.SMTPDataError):
+            error_class, summary = "SMTPDataError", "smtp_data_rejected"
+        elif isinstance(error, smtplib.SMTPException):
+            error_class, summary = "SMTPException", "smtp_delivery_failure"
+        elif isinstance(error, OSError):
+            error_class, summary = "OSError", "network_or_connection_failure"
+        else:
+            error_class, summary = "Exception", "unexpected_delivery_failure"
+        LOGGER.warning(
+            "Verification email delivery failed; exception_class=%s summary=%s",
+            error_class,
+            summary,
+        )
         raise RuntimeError("Could not send verification email. Check SMTP configuration and try again.") from None
     return None
 
