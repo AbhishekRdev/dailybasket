@@ -1,0 +1,72 @@
+# Local secrets and environment configuration
+.env
+.env.*
+!.env.example
+*.secret
+*.secret.*
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+config.local.*
+*.local
+secrets.toml
+.streamlit/secrets.toml
+.streamlit/credentials.toml
+.streamlit/config.toml
+
+# Local development databases and SQLite sidecars
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Python virtual environments and caches
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.ipynb_checkpoints/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build/package artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+*.whl
+
+# Application and test logs/output
+*.log
+*.out
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Local IDE and operating-system files
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Agents Related Metadata
+
+.codex/
+AGENTS.md
