@@ -304,7 +304,7 @@ def dashboard_groups(conn, owner_id, today=None):
             item.update({key: alert[key] for key in ("state", "surplus", "usage_rate_needed")})
             needs_attention.append(item)
         else:
-            item.update({"state": None, "surplus": None, "usage_rate_needed": False})
+            item.update({"state": None, "surplus": None, "usage_rate_needed": False}) 
             fresh.append(item)
     return {"fresh": fresh, "needs_attention": needs_attention}
 

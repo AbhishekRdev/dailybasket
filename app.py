@@ -1,4 +1,5 @@
 from datetime import date
+from html import escape
 import streamlit as st
 import dailybasket as db
 
@@ -8,6 +9,63 @@ conn = db.connect()
 
 def user(): return st.session_state.get("user")
 def flash(message): st.success(message)
+
+
+def apply_theme():
+    """Keep all styling local, static, and separate from user-provided values."""
+    st.markdown("""
+    <style>
+      :root { --leaf: #276749; --leaf-dark: #1f5139; --cream: #f8f5ed; --ink: #183327; --muted: #637568; --line: #dce6d9; --sun: #f6c453; --olive: #234f3b; --sand: #f5ead2; --sand-hover: #e7d7b6; }
+      .stApp { background: var(--cream); color: var(--ink); }
+      [data-testid="stHeader"] { background: rgba(248,245,237,.92); border-bottom: 1px solid var(--line); }
+      [data-testid="stSidebar"] { background: #f0f5ed; border-right: 1px solid var(--line); }
+      [data-testid="stSidebar"] > div:first-child { padding-top: 1.2rem; }
+      h1, h2, h3 { color: var(--ink) !important; letter-spacing: -.025em; }
+      h1 { font-weight: 750 !important; margin-bottom: .1rem !important; }
+      .stCaption { color: var(--muted) !important; }
+      .db-brand { padding: .45rem .15rem 1.1rem; }
+      .db-brand__name { color: var(--leaf-dark); font-size: 1.35rem; font-weight: 780; letter-spacing: -.04em; }
+      .db-brand__tagline { color: var(--muted); font-size: .82rem; margin-top: .15rem; }
+      .db-eyebrow { color: var(--leaf); font-size: .78rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+      [data-testid="stMetric"] { background: #fffdf8; border: 1px solid var(--line); border-radius: 14px; padding: .9rem 1rem; box-shadow: 0 2px 7px rgba(24,51,39,.035); }
+      [data-testid="stMetricLabel"] { color: var(--muted); font-size: .8rem; }
+      [data-testid="stMetricValue"] { color: var(--leaf-dark); font-weight: 750; }
+      [data-testid="stVerticalBlockBorderWrapper"] { background: #fffdf8; border-color: var(--line) !important; border-radius: 14px; box-shadow: 0 2px 7px rgba(24,51,39,.035); }
+      .stButton > button, .stFormSubmitButton > button { border-radius: 9px; border-color: var(--leaf); color: var(--leaf); font-weight: 650; }
+      .stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primary"] { background: var(--leaf); color: #fff; }
+      .stButton > button:hover, .stFormSubmitButton > button:hover { border-color: var(--leaf-dark); color: var(--leaf-dark); }
+      .stTextInput input, .stNumberInput input, .stDateInput input, .stTextArea textarea { background: #fffdf8; border-radius: 8px; border-color: #cad8c9; color: var(--ink) !important; caret-color: var(--ink) !important; -webkit-text-fill-color: var(--ink); }
+      [data-testid="stExpander"] { background: #fffdf8; border: 1px solid var(--line); border-radius: 12px; }
+      [data-testid="stAlert"] { border-radius: 10px; }
+      /* Auth tabs and sidebar navigation: high-contrast state changes, scoped to navigation only. */
+      [data-testid="stTabs"] [data-testid="stTab"] { background: var(--olive); border: 1px solid var(--olive); border-radius: 8px 8px 0 0; color: #fff !important; font-weight: 700; margin-right: .2rem; padding: .45rem .8rem; }
+      [data-testid="stTabs"] [data-testid="stTab"] p { color: inherit !important; }
+      [data-testid="stTabs"] [data-testid="stTab"]:hover { background: #376b50; border-color: #f6c453; }
+      [data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"] { background: #193f2e; border-color: #f6c453; box-shadow: inset 0 -4px 0 #f6c453; color: #fff !important; }
+      [data-testid="stTabs"] [data-testid="stTab"]:focus-visible { outline: 3px solid #174a84; outline-offset: 3px; }
+      [data-testid="stTabs"] [data-testid="stTabPanel"] { background: #fffaf0; border: 1px solid #d7c495; border-radius: 0 10px 10px 10px; padding: 1rem; }
+      [data-testid="stTabs"] [data-testid="stWidgetLabel"] { color: var(--ink) !important; }
+      [data-testid="stSidebar"] [data-testid="stRadio"] label { background: var(--olive); border: 1px solid var(--olive); border-radius: 8px; color: #fff !important; font-weight: 700; margin: .25rem 0; padding: .35rem .5rem; }
+      [data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background: #376b50; border-color: #f6c453; }
+      [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) { background: #193f2e; border-color: #f6c453; box-shadow: inset 4px 0 0 #f6c453; color: #fff !important; }
+      [data-testid="stSidebar"] [data-testid="stRadio"] label:focus-within { outline: 3px solid #174a84; outline-offset: 2px; }
+      @media (max-width: 720px) {
+        [data-testid="stSidebar"] { min-width: 0; }
+        [data-testid="stMetric"] { padding: .7rem; }
+        h1 { font-size: 1.75rem !important; }
+        [data-testid="stTabs"] [role="tablist"] { flex-wrap: wrap; overflow-x: visible; }
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def page_intro(eyebrow, title, description):
+    st.markdown(f'<div class="db-eyebrow">{escape(eyebrow)}</div>', unsafe_allow_html=True)
+    st.title(title)
+    st.caption(description)
+
+
+apply_theme()
 
 def nutrition_fields(key_prefix, nutrition=None, current_basis=None):
     nutrition = nutrition or {}
@@ -23,7 +81,8 @@ def nutrition_fields(key_prefix, nutrition=None, current_basis=None):
     return (values if basis != "Not entered" else None), (None if basis == "Not entered" else basis)
 
 if not user():
-    st.title("🧺 DailyBasket")
+    st.markdown('<div class="db-brand"><div class="db-brand__name">🧺 DailyBasket</div><div class="db-brand__tagline">A calmer way to plan your kitchen.</div></div>', unsafe_allow_html=True)
+    page_intro("Your pantry, in one place", "Good food, well planned.", "Track what you have, use it in time, and make your next shop simpler.")
     login, signup, verify = st.tabs(["Sign in", "Register", "Verify email"])
     with login:
         with st.form("login"):
@@ -59,16 +118,18 @@ if not user():
 
 account = user(); owner_id = account['id']; prefs = db.preferences(conn, owner_id)
 with st.sidebar:
-    st.header("DailyBasket")
-    page = st.radio("Navigate", ["Dashboard", "Shopping list", "Inventory", "Settings"])
+    st.markdown('<div class="db-brand"><div class="db-brand__name">🧺 DailyBasket</div><div class="db-brand__tagline">Your everyday kitchen companion</div></div>', unsafe_allow_html=True)
+    st.caption("WORKSPACE")
+    page = st.radio("Navigate", ["Dashboard", "Shopping list", "Inventory", "Settings"], label_visibility="collapsed")
+    st.divider()
+    st.caption(f"Signed in as {account['email']}")
     if st.button("Sign out"): st.session_state.pop("user"); st.rerun()
 
 if message := st.session_state.pop("success_message", None):
     st.success(message)
 
 if page == "Dashboard":
-    st.title("Your kitchen at a glance")
-    st.caption("Use what is closest to expiry first. Fresh stock stays visible below so you can plan before it becomes urgent.")
+    page_intro("Today’s plan", "Your kitchen at a glance", "Use what is closest to expiry first. Fresh stock stays visible below so you can plan before it becomes urgent.")
     batches = db.inventory(conn, owner_id, status="Active")
     groups = db.dashboard_groups(conn, owner_id)
     products = {row['product_id'] for row in batches}
@@ -78,7 +139,7 @@ if page == "Dashboard":
     fresh.success(f"Fresh stock\n\n{len(groups['fresh'])} batch{'es' if len(groups['fresh']) != 1 else ''}")
     attention.warning(f"Needs attention\n\n{len(groups['needs_attention'])} batch{'es' if len(groups['needs_attention']) != 1 else ''}")
 
-    st.subheader("Needs attention")
+    st.subheader("Use soon")
     if not groups['needs_attention']:
         st.success("Nothing needs attention right now.")
     for item in groups['needs_attention']:
@@ -102,14 +163,15 @@ if page == "Dashboard":
         st.success(f"{icon} **{item['name']}** · {item['remaining_quantity']} {item['unit']} · expiry {item['expiry_date']}" + (" (estimated)" if item['expiry_source'] == 'estimated' else ""))
 
 elif page == "Shopping list":
-    st.title("Shopping list")
-    st.caption("Capture the category and nutrition now so buying an item creates a useful inventory record.")
+    page_intro("Plan your next shop", "Shopping list", "Capture the category and nutrition now so buying an item creates a useful inventory record.")
     with st.form("add-shopping", clear_on_submit=True):
         name, quantity, unit, category = st.columns(4); item_name = name.text_input("Product"); amount = quantity.number_input("Quantity", min_value=0.01, value=1.0); item_unit = unit.text_input("Unit", value="kg"); item_category = category.selectbox("Category", list(db.CATEGORY_ICONS))
         nutrition, nutrition_basis = nutrition_fields("new-shopping")
         if st.form_submit_button("Add item"):
             db.add_shopping(conn, owner_id, item_name, amount, item_unit, item_category, nutrition, nutrition_basis); st.rerun()
-    entries = db.list_shopping(conn, owner_id); st.caption(f"{len(entries)} distinct items")
+    entries = db.list_shopping(conn, owner_id); st.caption(f"{len(entries)} distinct item{'s' if len(entries) != 1 else ''}")
+    if not entries:
+        st.info("Your shopping list is clear. Add an item above whenever something is running low.")
     for item in entries:
         left, middle, right = st.columns([4,2,2]); icon = db.CATEGORY_ICONS.get(item['category'], '🛒'); left.write(f"{icon} {'✓ ' if item['checked'] else ''}**{item['name']}** — {item['quantity']} {item['unit']}"); middle.caption(f"On hand: {item['on_hand']} {item['unit']}")
         if item['nutrition_basis']: left.caption(f"User-entered nutrition · {item['nutrition_basis']}")
@@ -129,7 +191,7 @@ elif page == "Shopping list":
                     db.edit_shopping(conn,owner_id,item['id'],new_name,new_quantity,new_unit,new_category,nutrition,nutrition_basis); st.rerun()
 
 elif page == "Inventory":
-    st.title("Inventory")
+    page_intro("Keep stock visible", "Inventory", "See what is on hand, record changes, and keep expiry planning up to date.")
     with st.expander("Add batch", expanded=True):
         with st.form("batch", clear_on_submit=True):
             name, category, qty, unit = st.columns(4); product_name=name.text_input("Product"); product_category=category.selectbox("Category", list(db.CATEGORY_ICONS)); amount=qty.number_input("Quantity", min_value=0.01, value=1.0); batch_unit=unit.text_input("Unit", value="kg")
@@ -139,6 +201,8 @@ elif page == "Inventory":
                 nutrition = {"calories": nutrition_calories} if nutrition_basis != "Not entered" else None
                 product_id=db.upsert_product(conn, owner_id, product_name, product_category, nutrition, None if nutrition_basis == "Not entered" else nutrition_basis, expected_rate or None, batch_unit if expected_rate else None); db.add_batch(conn, owner_id, product_id, amount, batch_unit, purchased, storage_method, expiry_date); st.rerun()
     query, filter_category, filter_status = st.columns(3); search=query.text_input("Search"); category_filter=filter_category.selectbox("Category",["All",*db.CATEGORY_ICONS]); status_filter=filter_status.selectbox("Expiry / status",["Active","Expired","Soon","All"]); rows = db.inventory(conn, owner_id, search, category_filter, status_filter)
+    if not rows:
+        st.info("No inventory matches these filters. Add a batch or adjust your search to continue.")
     for batch in rows:
         product=db.product_detail(conn,owner_id,batch['product_id']); icon=db.CATEGORY_ICONS.get(batch['category'],'🛒')
         if product['image_data']: st.image(product['image_data'],width=48)
@@ -168,7 +232,7 @@ elif page == "Inventory":
                     image=upload.getvalue() if upload else None; db.update_product(conn,owner_id,batch['product_id'],product['category'],db.json_load(product['nutrition_json']),product['nutrition_basis'],rate,rate_unit,image,upload.type if upload else None); st.rerun()
 
 else:
-    st.title("Settings")
+    page_intro("Preferences", "Settings", "Adjust planning preferences and keep your reminder email current.")
     import json
     with st.form("settings"):
         timezone=st.text_input("Time zone (IANA)", prefs['timezone']); soon=st.number_input("Soon window (calendar days including today)",min_value=1,max_value=30,value=prefs['soon_days'])

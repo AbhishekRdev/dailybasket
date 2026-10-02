@@ -2,6 +2,10 @@
 
 Local Streamlit MVP for private grocery planning, inventory batches, and in-app expiry and surplus reminders.
 
+## Design
+
+The Phase 2 interface uses a green-and-cream, community-dashboard-inspired presentation while preserving the MVP's existing workflows and data. Its compact navigation and card-oriented dashboard hierarchy were informed by Streamlit's [Seattle Weather dashboard](https://github.com/streamlit/demo-seattle-weather), an official Streamlit Gallery example; DailyBasket's colors, copy, and grocery-specific UI were designed independently.
+
 For a Windows demo setup, the exact registration and login steps, dashboard reminder walkthrough, and Streamlit Community Cloud limitations, see the [demo and onboarding guide](DEMO_GUIDE.md).
 
 ## Run
